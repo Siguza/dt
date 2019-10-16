@@ -152,6 +152,7 @@ typedef struct
 {
     const char *name;
     const char *prop;
+    size_t size;
 } dt_arg_t;
 
 static int dt_cbn(void *a, dt_node_t *node)
@@ -166,16 +167,20 @@ static int dt_cbn(void *a, dt_node_t *node)
 static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *val, size_t len)
 {
     int retval = 0;
-    if(!a || strncmp(a, key, DT_KEY_LEN) == 0)
+    dt_arg_t *arg = a;
+    const char *prop = arg->prop;
+    if(!prop || strncmp(prop, key, DT_KEY_LEN) == 0)
     {
         // Print name, if we're in single-prop mode and recursive
-        if(depth >= 0 && a && strcmp(key, "name") != 0)
+        if(depth >= 0 && prop && strcmp(key, "name") != 0)
         {
             size_t l = 0;
             void *v = dt_prop(node, "name", &l);
             if(v)
             {
-                retval = dt_cbp(NULL, node, depth, "name", v, l);
+                dt_arg_t tmp = *arg;
+                tmp.prop = NULL;
+                retval = dt_cbp(&tmp, node, depth, "name", v, l);
             }
         }
         if(depth < 0) depth = 0;
@@ -214,13 +219,41 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
             const char *hex = "0123456789abcdef";
             char xs[49] = {};
             char cs[17] = {};
-            xs[2] = xs[5] = xs[8] = xs[11] = xs[14] = xs[17] = xs[20] = xs[23] = xs[24] = xs[27] = xs[30] = xs[33] = xs[36] = xs[39] = xs[42] = xs[45] = ' ';
+            size_t sz = arg->size;
+            if(sz == 8)
+            {
+                xs[0]  = xs[19] = '0';
+                xs[1]  = xs[20] = 'x';
+                xs[18] = xs[37] = ' ';
+            }
+            else if(sz == 4)
+            {
+                xs[0]  = xs[11] =          xs[23] = xs[34] = '0';
+                xs[1]  = xs[12] =          xs[24] = xs[35] = 'x';
+                xs[10] = xs[21] = xs[22] = xs[33] = xs[44] = ' ';
+            }
+            else
+            {
+                xs[2] = xs[5] = xs[8] = xs[11] = xs[14] = xs[17] = xs[20] = xs[23] = xs[24] = xs[27] = xs[30] = xs[33] = xs[36] = xs[39] = xs[42] = xs[45] = ' ';
+            }
             size_t i;
             for(i = 0; i < len; ++i)
             {
                 uint8_t c = str[i];
                 size_t is = i % 0x10;
-                size_t ix = 3 * is + (is >= 0x8 ? 1 : 0);
+                size_t ix;
+                if(sz == 8)
+                {
+                    ix = (is >= 0x8 ? 51 : 16) - (2 * is);
+                }
+                else if(sz == 4)
+                {
+                    ix = (is >= 0x8 ? (is >= 0xc ? 66 : 47) : (is >= 0x4 ? 27 : 8)) - (2 * is);
+                }
+                else
+                {
+                    ix = 3 * is + (is >= 0x8 ? 1 : 0);
+                }
                 xs[ix    ] = hex[(c >> 4) & 0xf];
                 xs[ix + 1] = hex[(c     ) & 0xf];
                 cs[is] = c >= 0x20 && c < 0x7f ? c : '.';
@@ -233,7 +266,33 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
             if((i % 0x10) != 0)
             {
                 size_t is = i % 0x10;
-                size_t ix = 3 * is + (is >= 0x8 ? 1 : 0);
+                size_t ix;
+                if(sz == 8)
+                {
+                    ix = (is >= 0x8 ? 51 : 16) - (2 * is);
+                    xs[ix    ] = '0';
+                    xs[ix + 1] = 'x';
+                    for(size_t iz = is >= 0x8 ? 19 : 0; iz < ix; ++iz)
+                    {
+                        xs[iz] = ' ';
+                    }
+                    ix = is > 0x8 ? 37 : 18;
+                }
+                else if(sz == 4)
+                {
+                    ix = (is >= 0x8 ? (is >= 0xc ? 66 : 47) : (is >= 0x4 ? 27 : 8)) - (2 * is);
+                    xs[ix    ] = '0';
+                    xs[ix + 1] = 'x';
+                    for(size_t iz = is >= 0x8 ? (is >= 0xc ? 34 : 23) : (is >= 0x4 ? 11 : 0); iz < ix; ++iz)
+                    {
+                        xs[iz] = ' ';
+                    }
+                    ix = is > 0x8 ? (is > 0xc ? 44 : 33) : (is > 0x4 ? 21 : 10);
+                }
+                else
+                {
+                    ix = 3 * is + (is >= 0x8 ? 1 : 0);
+                }
                 xs[ix] = '\0';
                 cs[is] = '\0';
                 LOG("%*s%-*s %-*s  |%s|", depth * 4, "", DT_KEY_LEN, k, (int)sizeof(xs), xs, cs);
@@ -265,25 +324,45 @@ int dt(void *mem, size_t size, void *a)
         }
     }
 
+    // TODO: Multiple nodes with same name
     dt_node_t *node = name ? dt_find(mem, name) : mem;
     REQ(node);
 
-    retval = dt_parse(node, recurse ? 0 : -1, NULL, recurse ? &dt_cbn : NULL, node, &dt_cbp, (void*)arg->prop);
+    retval = dt_parse(node, recurse ? 0 : -1, NULL, recurse ? &dt_cbn : NULL, node, &dt_cbp, arg);
 out:;
     return retval;
 }
 
 int main(int argc, const char **argv)
 {
-    if(argc < 2 || argc > 4)
+    if(argc < 2 || argc > 5)
     {
-        ERR("Usage: %s file [[+]name [prop]]", argv[0]);
+        ERR("Usage: %s file [[+]name [prop]] [-4|-8]", argv[0]);
         return -1;
+    }
+    size_t size = 0;
+    if(argc > 2 && argv[argc-1][0] == '-')
+    {
+        --argc;
+        if(argv[argc][1] == '4' && argv[argc][2] == '\0')
+        {
+            size = 4;
+        }
+        else if(argv[argc][1] == '8' && argv[argc][2] == '\0')
+        {
+            size = 8;
+        }
+        else
+        {
+            ERR("Bad flag: %s", argv[argc]);
+            return -1;
+        }
     }
     dt_arg_t arg =
     {
-        .name = argc >= 3 ? argv[2] : NULL,
-        .prop = argc >= 4 ? argv[3] : NULL,
+        .name = argc > 2 ? argv[2] : NULL,
+        .prop = argc > 3 ? argv[3] : NULL,
+        .size = size,
     };
     return file2mem(argv[1], &dt, &arg);
 }

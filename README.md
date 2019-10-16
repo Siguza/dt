@@ -12,6 +12,8 @@ dt ./DeviceTree cpu0                # Print all properties of node "cpu0"
 dt ./DeviceTree cpu0 reg-private    # Print property "reg-private" of node "cpu0"
 dt ./DeviceTree +cpus               # Print all properties of node "cpus" and all its child nodes
 dt ./DeviceTree +cpus reg-private   # Print property "reg-private" of node "cpus" and all its child nodes
+dt ./DeviceTree -4                  # Do hexdumps as uint32
+dt ./DeviceTree cpu0 reg-private -8 # Do hexdumps as uint64
 ```
 ```
 pmgr ./DeviceTree                   # Print MMIO addresses of all devices in the power manager
