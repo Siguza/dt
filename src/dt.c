@@ -184,24 +184,32 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
             }
         }
         if(depth < 0) depth = 0;
-        bool printable = true;
+        bool printable = true, visible = false;
         char *str = val;
         for(size_t i = 0; i < len; ++i)
         {
             char c = str[i];
+            if(c == 0x0 && i == len - 1)
+            {
+                continue;
+            }
             if((c < 0x20 || c >= 0x7f) && c != '\t' && c != '\n')
             {
-                if(c == 0x0 && i == len - 1)
-                {
-                    continue;
-                }
                 printable = false;
                 break;
             }
+            if(c != ' ' && c != '\t' && c != '\n')
+            {
+                visible = true;
+            }
         }
-        if(printable)
+        if(len == 0)
         {
-            LOG("%*s%-*s %s", depth * 4, "", DT_KEY_LEN, key, str);
+            LOG("%*s%-*s %-*s  ||", depth * 4, "", DT_KEY_LEN, key, 49, "");
+        }
+        else if(printable && visible)
+        {
+            LOG("%*s%-*s %.*s", depth * 4, "", DT_KEY_LEN, key, (int)len, str);
         }
         else if(len == 1 || len == 2 || len == 4) // 8 is usually not uint64
         {
