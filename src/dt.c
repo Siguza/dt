@@ -1,4 +1,4 @@
-/* Copyright (c) 2019 Siguza
+/* Copyright (c) 2019-2020 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -275,7 +275,16 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
             {
                 size_t is = i % 0x10;
                 size_t ix;
-                if(sz == 8)
+                // If we only have a single int, pull it back so it doesn't look odd.
+                if(len < sz)
+                {
+                    size_t off = 2 * (sz - len);
+                    for(ix = 2; ix < 2 * len + 2; ++ix)
+                    {
+                        xs[ix] = xs[ix + off];
+                    }
+                }
+                else if(sz == 8)
                 {
                     ix = (is >= 0x8 ? 51 : 16) - (2 * is);
                     xs[ix    ] = '0';
