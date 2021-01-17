@@ -1,4 +1,4 @@
-/* Copyright (c) 2019-2020 Siguza
+/* Copyright (c) 2019-2021 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -34,8 +34,9 @@ typedef struct
 
 typedef struct
 {
-    uint32_t flg : 8,
-             a   : 24;
+    uint32_t flg :  8,
+             a   : 16,
+             id1 :  8;
     uint32_t b;
     uint32_t c   : 16,
              idx :  8,
@@ -43,14 +44,20 @@ typedef struct
     uint32_t d;
     uint32_t e;
     uint32_t f;
-    uint32_t g;
+    uint32_t g   : 16,
+             id2 : 16;
     uint32_t h;
     char name[0x10];
 } pmgr_dev_t;
 
+#define flag_all 0x01
+#define flag_id  0x02
+
 int pmgr(void *mem, size_t size, void *arg)
 {
     int retval = -1;
+    uint32_t flags = *(uint32_t*)arg;
+    bool use_id1 = false;
 
     REQ(dt_check(mem, size, NULL) == 0);
 
@@ -75,14 +82,39 @@ int pmgr(void *mem, size_t size, void *arg)
     }
     for(size_t i = 0; i < devlen; ++i)
     {
-        if(!(dev[i].flg & 0x10)) // idk what these are
+        if(dev[i].id1)
         {
-            pmgr_dev_t *d = &dev[i];
+            use_id1 = true;
+            break;
+        }
+    }
+    for(size_t i = 0; i < devlen; ++i)
+    {
+        pmgr_dev_t *d = &dev[i];
+        if(dev[i].flg & 0x10) // idk what these are
+        {
+            if(flags & flag_all)
+            {
+                if(flags & flag_id)
+                {
+                    if(use_id1) printf("0x%02x ", d->id1);
+                    else        printf("0x%04x ", d->id2);
+                }
+                printf("----------- %s\n", d->name);
+            }
+        }
+        else
+        {
             REQ(d->map < maplen);
             pmgr_map_t *m = &map[d->map];
             pmgr_reg_t *r = &reg[m->reg];
             REQ(d->idx < ((r->size - m->off) >> PMGR_SHIFT));
-            LOG("0x%09llx %s", IO_BASE + reg[m->reg].addr + m->off + (d->idx << PMGR_SHIFT), d->name);
+            if(flags & flag_id)
+            {
+                if(use_id1) printf("0x%02x ", d->id1);
+                else        printf("0x%04x ", d->id2);
+            }
+            printf("0x%09llx %s\n", IO_BASE + reg[m->reg].addr + m->off + (d->idx << PMGR_SHIFT), d->name);
         }
     }
 
@@ -95,10 +127,30 @@ out:;
 
 int main(int argc, const char **argv)
 {
-    if(argc < 2)
+    uint32_t flags = 0;
+    int aoff = 1;
+    for(; aoff < argc && argv[aoff][0] == '-'; ++aoff)
     {
-        ERR("Usage: %s file", argv[0]);
+        for(size_t i = 1; argv[aoff][i] != '\0'; ++i)
+        {
+            switch(argv[aoff][i])
+            {
+                case 'a':
+                    flags |= flag_all;
+                    break;
+                case 'i':
+                    flags |= flag_id;
+                    break;
+                default:
+                    ERR("Bad option: -%c", argv[aoff][i]);
+                    return -1;
+            }
+        }
+    }
+    if(argc - aoff != 1)
+    {
+        ERR("Usage: %s [-a] [-i] file", argv[0]);
         return -1;
     }
-    return file2mem(argv[1], &pmgr, NULL);
+    return file2mem(argv[aoff], &pmgr, &flags);
 }
