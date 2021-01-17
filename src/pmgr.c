@@ -37,11 +37,13 @@ typedef struct
     uint32_t flg :  8,
              a   : 16,
              id1 :  8;
-    uint32_t b;
+    uint32_t al2 : 16,
+             b   : 16;
     uint32_t c   : 16,
              idx :  8,
              map :  8;
-    uint32_t d;
+    uint32_t al1 :  8,
+             d   : 24;
     uint32_t e;
     uint32_t f;
     uint32_t g   : 16,
@@ -91,30 +93,48 @@ int pmgr(void *mem, size_t size, void *arg)
     for(size_t i = 0; i < devlen; ++i)
     {
         pmgr_dev_t *d = &dev[i];
-        if(dev[i].flg & 0x10) // idk what these are
+        pmgr_dev_t *a = NULL;
+        if(dev[i].flg & 0x10) // alias
         {
-            if(flags & flag_all)
+            uint16_t al = use_id1 ? d->al1 : d->al2;
+            if(!(flags & flag_all))
             {
-                if(flags & flag_id)
+                continue;
+            }
+            for(size_t j = 0; j < devlen; ++j)
+            {
+                pmgr_dev_t *t = &dev[j];
+                if((use_id1 ? t->id1 : t->id2) == al)
                 {
-                    if(use_id1) printf("0x%02x ", d->id1);
-                    else        printf("0x%04x ", d->id2);
+                    a = t;
+                    break;
                 }
-                printf("----------- %s\n", d->name);
             }
         }
         else
         {
-            REQ(d->map < maplen);
-            pmgr_map_t *m = &map[d->map];
+            a = d;
+        }
+        if(flags & flag_id)
+        {
+            printf(use_id1 ? "0x%02x " : "0x%04x ", use_id1 ? d->id1 : d->id2);
+        }
+        if(a)
+        {
+            REQ(a->map < maplen);
+            pmgr_map_t *m = &map[a->map];
             pmgr_reg_t *r = &reg[m->reg];
-            REQ(d->idx < ((r->size - m->off) >> PMGR_SHIFT));
-            if(flags & flag_id)
+            REQ(a->idx < ((r->size - m->off) >> PMGR_SHIFT));
+            printf("0x%09llx %s", IO_BASE + reg[m->reg].addr + m->off + (a->idx << PMGR_SHIFT), d->name);
+            if(a != d)
             {
-                if(use_id1) printf("0x%02x ", d->id1);
-                else        printf("0x%04x ", d->id2);
+                printf(" (alias for %s)", a->name);
             }
-            printf("0x%09llx %s\n", IO_BASE + reg[m->reg].addr + m->off + (d->idx << PMGR_SHIFT), d->name);
+            printf("\n");
+        }
+        else
+        {
+            printf("----------- %s\n", d->name);
         }
     }
 
