@@ -37,13 +37,11 @@ typedef struct
     uint32_t flg :  8,
              a   : 16,
              id1 :  8;
-    uint32_t al2 : 16,
-             b   : 16;
+    uint32_t alias;
     uint32_t c   : 16,
              idx :  8,
              map :  8;
-    uint32_t al1 :  8,
-             d   : 24;
+    uint32_t d;
     uint32_t e;
     uint32_t f;
     uint32_t g   : 16,
@@ -52,14 +50,68 @@ typedef struct
     char name[0x10];
 } pmgr_dev_t;
 
-#define flag_all 0x01
-#define flag_id  0x02
+typedef struct
+{
+    uint32_t flag_all :  1,
+             flags    : 31;
+    int (*cb)(int depth, bool u8id, uint16_t id, uint64_t addr, const char *name, void *ctx);
+    void *ctx;
+} pmgr_arg_t;
 
-int pmgr(void *mem, size_t size, void *arg)
+static int pmgr_recurse(int depth, bool u8id, pmgr_reg_t *reg, pmgr_map_t *map, pmgr_dev_t *dev, size_t devlen, pmgr_dev_t *d, pmgr_arg_t *arg)
 {
     int retval = -1;
-    uint32_t flags = *(uint32_t*)arg;
-    bool use_id1 = false;
+    uint16_t id = u8id ? d->id1 : d->id2;
+    if(d->flg & 0x10) // compound
+    {
+        if(!arg->flag_all)
+        {
+            return 0;
+        }
+        retval = arg->cb(depth, u8id, id, 0, d->name, arg->ctx);
+        if(retval != 0)
+        {
+            goto out;
+        }
+        uint32_t alias = d->alias;
+        uint16_t al1 = u8id ? ( alias       & 0xff) : ( alias        & 0xffff),
+                 al2 = u8id ? ((alias >> 8) & 0xff) : ((alias >> 16) & 0xffff);
+        for(size_t i = 0; i < devlen; ++i)
+        {
+            pmgr_dev_t *n = &dev[i];
+            uint16_t nid = u8id ? n->id1 : n->id2;
+            if(nid == al1 || nid == al2)
+            {
+                retval = pmgr_recurse(depth + 1, u8id, reg, map, dev, devlen, n, arg);
+                if(retval != 0)
+                {
+                    goto out;
+                }
+            }
+        }
+    }
+    else
+    {
+        pmgr_map_t *m = &map[d->map];
+        pmgr_reg_t *r = &reg[m->reg];
+        REQ(d->idx < ((r->size - m->off) >> PMGR_SHIFT));
+        retval = arg->cb(depth, u8id, id, IO_BASE + reg[m->reg].addr + m->off + (d->idx << PMGR_SHIFT), d->name, arg->ctx);
+        if(r != 0)
+        {
+            goto out;
+        }
+    }
+    retval = 0;
+
+out:;
+    return retval;
+}
+
+int pmgr(void *mem, size_t size, void *a)
+{
+    int retval = -1;
+    pmgr_arg_t *arg = a;
+    bool u8id = false;
 
     REQ(dt_check(mem, size, NULL) == 0);
 
@@ -84,57 +136,18 @@ int pmgr(void *mem, size_t size, void *arg)
     }
     for(size_t i = 0; i < devlen; ++i)
     {
+        REQ((dev[i].flg & 0x10) || dev[i].map < maplen);
         if(dev[i].id1)
         {
-            use_id1 = true;
-            break;
+            u8id = true;
         }
     }
     for(size_t i = 0; i < devlen; ++i)
     {
-        pmgr_dev_t *d = &dev[i];
-        pmgr_dev_t *a = NULL;
-        if(dev[i].flg & 0x10) // alias
+        retval = pmgr_recurse(0, u8id, reg, map, dev, devlen, &dev[i], arg);
+        if(retval != 0)
         {
-            uint16_t al = use_id1 ? d->al1 : d->al2;
-            if(!(flags & flag_all))
-            {
-                continue;
-            }
-            for(size_t j = 0; j < devlen; ++j)
-            {
-                pmgr_dev_t *t = &dev[j];
-                if((use_id1 ? t->id1 : t->id2) == al)
-                {
-                    a = t;
-                    break;
-                }
-            }
-        }
-        else
-        {
-            a = d;
-        }
-        if(flags & flag_id)
-        {
-            printf(use_id1 ? "0x%02x " : "0x%04x ", use_id1 ? d->id1 : d->id2);
-        }
-        if(a)
-        {
-            REQ(a->map < maplen);
-            pmgr_map_t *m = &map[a->map];
-            pmgr_reg_t *r = &reg[m->reg];
-            REQ(a->idx < ((r->size - m->off) >> PMGR_SHIFT));
-            printf("0x%09llx %s", IO_BASE + reg[m->reg].addr + m->off + (a->idx << PMGR_SHIFT), d->name);
-            if(a != d)
-            {
-                printf(" (alias for %s)", a->name);
-            }
-            printf("\n");
-        }
-        else
-        {
-            printf("----------- %s\n", d->name);
+            goto out;
         }
     }
 
@@ -145,9 +158,27 @@ out:;
 
 // ========== CLI ==========
 
+#define pflag_show_id 0x01
+
+static int pmgr_cb(int depth, bool u8id, uint16_t id, uint64_t addr, const char *name, void *ctx)
+{
+    uint32_t pflags = *(uint32_t*)ctx;
+    printf("%*s", depth * 4, "");
+    if(pflags & pflag_show_id)  printf(u8id ? "0x%02x " : "0x%04x ", id);
+    if(addr)    printf("0x%09llx ", addr);
+    else        printf("----------- ");
+    printf("%s\n", name);
+    return 0;
+}
+
 int main(int argc, const char **argv)
 {
-    uint32_t flags = 0;
+    uint32_t pflags = 0;
+    pmgr_arg_t arg =
+    {
+        .cb  = pmgr_cb,
+        .ctx = &pflags,
+    };
     int aoff = 1;
     for(; aoff < argc && argv[aoff][0] == '-'; ++aoff)
     {
@@ -156,10 +187,10 @@ int main(int argc, const char **argv)
             switch(argv[aoff][i])
             {
                 case 'a':
-                    flags |= flag_all;
+                    arg.flag_all = 1;
                     break;
                 case 'i':
-                    flags |= flag_id;
+                    pflags |= pflag_show_id;
                     break;
                 default:
                     ERR("Bad option: -%c", argv[aoff][i]);
@@ -172,5 +203,5 @@ int main(int argc, const char **argv)
         ERR("Usage: %s [-a] [-i] file", argv[0]);
         return -1;
     }
-    return file2mem(argv[aoff], &pmgr, &flags);
+    return file2mem(argv[aoff], &pmgr, &arg);
 }
