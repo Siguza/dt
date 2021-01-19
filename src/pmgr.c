@@ -12,27 +12,32 @@
 #include <stdint.h>
 #include <string.h>             // strcmp, strncmp, strlen
 
+#ifdef PMGR_MAIN
+#   include <stdio.h>           // snprintf
+#endif
+
 #include "dt.h"
+#include "pmgr.h"
 
 // ========== PMGR ==========
 
 #define IO_BASE 0x200000000ULL
 #define PMGR_SHIFT 3
 
-typedef struct
+struct pmgr_reg
 {
     uint64_t addr;
     uint64_t size;
-} pmgr_reg_t;
+};
 
-typedef struct
+struct pmgr_map
 {
     uint32_t reg;
     uint32_t off;
     uint32_t idk;
-} pmgr_map_t;
+};
 
-typedef struct
+struct pmgr_dev
 {
     uint32_t flg :  8,
              a   : 16,
@@ -48,42 +53,34 @@ typedef struct
              id2 : 16;
     uint32_t h;
     char name[0x10];
-} pmgr_dev_t;
+};
 
-typedef struct
+static int pmgr_recurse(int depth, pmgr_t *pmgr, pmgr_dev_t *d, pmgr_arg_t *arg)
 {
-    uint32_t flag_all :  1,
-             flags    : 31;
-    int (*cb)(int depth, bool u8id, uint16_t id, uint64_t addr, const char *name, void *ctx);
-    void *ctx;
-} pmgr_arg_t;
-
-static int pmgr_recurse(int depth, bool u8id, pmgr_reg_t *reg, pmgr_map_t *map, pmgr_dev_t *dev, size_t devlen, pmgr_dev_t *d, pmgr_arg_t *arg)
-{
-    int retval = -1;
-    uint16_t id = u8id ? d->id1 : d->id2;
+    int rv = -1;
+    uint16_t id = pmgr->u8id ? d->id1 : d->id2;
     if(d->flg & 0x10) // compound
     {
         if(!arg->flag_all)
         {
             return 0;
         }
-        retval = arg->cb(depth, u8id, id, 0, d->name, arg->ctx);
-        if(retval != 0)
+        rv = arg->cb(depth, pmgr->u8id, id, 0, d->name, arg->ctx);
+        if(rv != 0)
         {
             goto out;
         }
         uint32_t alias = d->alias;
-        uint16_t al1 = u8id ? ( alias       & 0xff) : ( alias        & 0xffff),
-                 al2 = u8id ? ((alias >> 8) & 0xff) : ((alias >> 16) & 0xffff);
-        for(size_t i = 0; i < devlen; ++i)
+        uint16_t al1 = pmgr->u8id ? ( alias       & 0xff) : ( alias        & 0xffff),
+                 al2 = pmgr->u8id ? ((alias >> 8) & 0xff) : ((alias >> 16) & 0xffff);
+        for(size_t i = 0; i < pmgr->devlen; ++i)
         {
-            pmgr_dev_t *n = &dev[i];
-            uint16_t nid = u8id ? n->id1 : n->id2;
+            pmgr_dev_t *n = &pmgr->dev[i];
+            uint16_t nid = pmgr->u8id ? n->id1 : n->id2;
             if(nid == al1 || nid == al2)
             {
-                retval = pmgr_recurse(depth + 1, u8id, reg, map, dev, devlen, n, arg);
-                if(retval != 0)
+                rv = pmgr_recurse(depth + 1, pmgr, n, arg);
+                if(rv != 0)
                 {
                     goto out;
                 }
@@ -92,30 +89,29 @@ static int pmgr_recurse(int depth, bool u8id, pmgr_reg_t *reg, pmgr_map_t *map, 
     }
     else
     {
-        pmgr_map_t *m = &map[d->map];
-        pmgr_reg_t *r = &reg[m->reg];
+        pmgr_map_t *m = &pmgr->map[d->map];
+        pmgr_reg_t *r = &pmgr->reg[m->reg];
         REQ(d->idx < ((r->size - m->off) >> PMGR_SHIFT));
-        retval = arg->cb(depth, u8id, id, IO_BASE + reg[m->reg].addr + m->off + (d->idx << PMGR_SHIFT), d->name, arg->ctx);
-        if(r != 0)
+        rv = arg->cb(depth, pmgr->u8id, id, IO_BASE + r->addr + m->off + (d->idx << PMGR_SHIFT), d->name, arg->ctx);
+        if(rv != 0)
         {
             goto out;
         }
     }
-    retval = 0;
+    rv = 0;
 
 out:;
-    return retval;
+    return rv;
 }
 
-int pmgr(void *mem, size_t size, void *a)
+int pmgr_find(void *mem, size_t size, pmgr_t *pmgr)
 {
-    int retval = -1;
-    pmgr_arg_t *arg = a;
+    int r = -1;
     bool u8id = false;
 
     REQ(dt_check(mem, size, NULL) == 0);
 
-    dt_node_t *node = dt_find(mem, "pmgr");
+    dt_node_t *node = dt_find(mem, "/device-tree/arm-io/pmgr");
     REQ(node);
 
     size_t reglen = 0, maplen = 0, devlen = 0;
@@ -142,32 +138,56 @@ int pmgr(void *mem, size_t size, void *a)
             u8id = true;
         }
     }
-    for(size_t i = 0; i < devlen; ++i)
+
+    pmgr->reg = reg;
+    pmgr->map = map;
+    pmgr->dev = dev;
+    pmgr->reglen = reglen;
+    pmgr->maplen = maplen;
+    pmgr->devlen = devlen;
+    pmgr->u8id = u8id;
+    r = 0;
+out:;
+    return r;
+}
+
+int pmgr_parse(pmgr_t *pmgr, pmgr_arg_t *arg)
+{
+    for(size_t i = 0; i < pmgr->devlen; ++i)
     {
-        retval = pmgr_recurse(0, u8id, reg, map, dev, devlen, &dev[i], arg);
-        if(retval != 0)
+        int r = pmgr_recurse(0, pmgr, &pmgr->dev[i], arg);
+        if(r != 0)
         {
-            goto out;
+            return r;
         }
     }
-
-    retval = 0;
-out:;
-    return retval;
+    return 0;
 }
 
 // ========== CLI ==========
+
+#ifdef PMGR_MAIN
+
+int pmgr(void *mem, size_t size, void *a)
+{
+    pmgr_t pmgr;
+    int r = pmgr_find(mem, size, &pmgr);
+    if(r != 0) return r;
+    return pmgr_parse(&pmgr, a);
+}
 
 #define pflag_show_id 0x01
 
 static int pmgr_cb(int depth, bool u8id, uint16_t id, uint64_t addr, const char *name, void *ctx)
 {
     uint32_t pflags = *(uint32_t*)ctx;
-    printf("%*s", depth * 4, "");
-    if(pflags & pflag_show_id)  printf(u8id ? "0x%02x " : "0x%04x ", id);
-    if(addr)    printf("0x%09llx ", addr);
-    else        printf("----------- ");
-    printf("%s\n", name);
+    char buf[27]; // 6+1 id, 18+1 addr, 1 terminator
+    buf[0] = '\0';
+    int i = 0;
+    if(pflags & pflag_show_id) i += snprintf(buf+i, sizeof(buf)-i, u8id ? "0x%02hx " : "0x%04hx ", id);
+    if(addr) i += snprintf(buf+i, sizeof(buf)-i, "0x%09llx ", addr);
+    else     i += snprintf(buf+i, sizeof(buf)-i, "----------- ");
+    LOG("%*s%s%s", depth * 4, "", buf, name);
     return 0;
 }
 
@@ -205,3 +225,4 @@ int main(int argc, const char **argv)
     }
     return file2mem(argv[aoff], &pmgr, &arg);
 }
+#endif
