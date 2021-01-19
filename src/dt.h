@@ -1,4 +1,4 @@
-/* Copyright (c) 2019-2020 Siguza
+/* Copyright (c) 2019-2021 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -62,19 +62,6 @@ typedef struct
     uint32_t len;
     char val[];
 } dt_prop_t;
-
-typedef struct
-{
-    const char *name;
-    dt_node_t *node;
-} dt_find_cb_t;
-
-typedef struct
-{
-    const char *key;
-    void *val;
-    size_t len;
-} dt_prop_cb_t;
 
 int dt_check(void *mem, size_t size, size_t *offp);
 int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg);

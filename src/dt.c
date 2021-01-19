@@ -1,4 +1,4 @@
-/* Copyright (c) 2019-2020 Siguza
+/* Copyright (c) 2019-2021 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -106,10 +106,45 @@ int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_
     return 0;
 }
 
+typedef struct
+{
+    const char *name;
+    dt_node_t *node;
+    int matchdepth;
+} dt_find_cb_t;
+
 static int dt_find_cb(void *a, dt_node_t *node, int depth, const char *key, void *val, size_t len)
 {
     dt_find_cb_t *arg = a;
-    if(strcmp(key, "name") == 0 && strncmp(arg->name, val, len) == 0 && strlen(arg->name) + 1 == len)
+    if(strcmp(key, "name") != 0)
+    {
+        return 0;
+    }
+    const char *name = arg->name;
+    if(name[0] == '/') // Absolute path
+    {
+        // If we ever get here, we traversed back out of an entry that
+        // we matched against, without finding a matching child node.
+        if(depth < arg->matchdepth)
+        {
+            return -1;
+        }
+        ++name;
+        const char *end = strchr(name, '/');
+        if(end) // Handle non-leaf segment
+        {
+            size_t size = end - name;
+            if(strncmp(name, val, size) == 0 && size + 1 == len && ((const char*)val)[size] == '\0')
+            {
+                arg->name = end;
+                ++arg->matchdepth;
+            }
+            return 0;
+        }
+        // Leaf segment can fall through
+    }
+    // Simple name
+    if(strncmp(name, val, len) == 0 && strlen(name) + 1 == len)
     {
         arg->node = node;
         return 1;
@@ -119,10 +154,17 @@ static int dt_find_cb(void *a, dt_node_t *node, int depth, const char *key, void
 
 dt_node_t* dt_find(dt_node_t *node, const char *name)
 {
-    dt_find_cb_t arg = { name, NULL };
+    dt_find_cb_t arg = { name, NULL, 0 };
     dt_parse(node, 0, NULL, NULL, NULL, &dt_find_cb, &arg);
     return arg.node;
 }
+
+typedef struct
+{
+    const char *key;
+    void *val;
+    size_t len;
+} dt_prop_cb_t;
 
 static int dt_prop_cb(void *a, dt_node_t *node, int depth, const char *key, void *val, size_t len)
 {
@@ -354,7 +396,9 @@ int main(int argc, const char **argv)
 {
     if(argc < 2 || argc > 5)
     {
-        ERR("Usage: %s file [[+]name [prop]] [-4|-8]", argv[0]);
+        ERR("Usage:");
+        ERR("    %s file [[+]name [prop]] [-4|-8]", argv[0]);
+        ERR("    %s file [[+]/path/to/node [prop]] [-4|-8]", argv[0]);
         return -1;
     }
     size_t size = 0;

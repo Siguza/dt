@@ -14,6 +14,7 @@ dt ./DeviceTree +cpus               # Print all properties of node "cpus" and al
 dt ./DeviceTree +cpus reg-private   # Print property "reg-private" of node "cpus" and all its child nodes
 dt ./DeviceTree -4                  # Do hexdumps as uint32
 dt ./DeviceTree cpu0 reg-private -8 # Do hexdumps as uint64
+dt ./DeviceTree /device-tree/arm-io # Filter by absolute path
 ```
 ```
 pmgr ./DeviceTree                   # Print MMIO addresses of all devices in the power manager
