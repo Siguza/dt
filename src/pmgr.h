@@ -11,6 +11,10 @@
 #ifndef PMGR_H
 #define PMGR_H
 
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
 struct pmgr_reg;
 struct pmgr_map;
 struct pmgr_dev;
