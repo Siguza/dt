@@ -1,4 +1,4 @@
-/* Copyright (c) 2019-2021 Siguza
+/* Copyright (c) 2019-2023 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -111,7 +111,7 @@ int pmgr_find(void *mem, size_t size, pmgr_t *pmgr)
 
     REQ(dt_check(mem, size, NULL) == 0);
 
-    dt_node_t *node = dt_find(mem, "/device-tree/arm-io/pmgr");
+    dt_node_t *node = dt_find(mem, "/arm-io/pmgr");
     REQ(node);
 
     size_t reglen = 0, maplen = 0, devlen = 0;

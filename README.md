@@ -2,22 +2,33 @@
 
 Minimal code to deal with Apple's DeviceTree format.
 
-The `Makefile` builds `dt` and `pmgr` binaries, but you should also be able to use `dt.c` + `dt.h` as a library of sorts.
+The Makefile builds `dt` and `pmgr` binaries, but you should also be able to use `dt.c` + `dt.h` as a library of sorts.
 
 ### Usage
 
 ```
+dt file [node] [property] [flags]
+pmgr [flags] file
+```
+
+Arguments in brackets are optional.
+
+```
 dt ./DeviceTree                     # Print all properties of all nodes
+dt ./DeviceTree -4                  # Print all properties of all nodes as uint32
 dt ./DeviceTree cpu0                # Print all properties of node "cpu0"
 dt ./DeviceTree cpu0 reg-private    # Print property "reg-private" of node "cpu0"
-dt ./DeviceTree +cpus               # Print all properties of node "cpus" and all its child nodes
-dt ./DeviceTree +cpus reg-private   # Print property "reg-private" of node "cpus" and all its child nodes
-dt ./DeviceTree -4                  # Do hexdumps as uint32
-dt ./DeviceTree cpu0 reg-private -8 # Do hexdumps as uint64
-dt ./DeviceTree /device-tree/arm-io # Filter by absolute path
+dt ./DeviceTree cpu0 reg-private -8 # Print property "reg-private" of node "cpu0" as uint64
+dt ./DeviceTree cpus/               # Print all properties of node "cpus" and all its child nodes
+dt ./DeviceTree cpus/ reg-private   # Print property "reg-private" of node "cpus" and all its child nodes
+dt ./DeviceTree /arm-io/wdt         # Filter by absolute path
+dt ./DeviceTree ''                  # Print all properties of the root node
+dt ./DeviceTree '/' name            # Print property "name" of all nodes
 ```
 ```
 pmgr ./DeviceTree                   # Print MMIO addresses of all devices in the power manager
+pmgr -a ./DeviceTree                # Show stub and group entries
+pmgr -a ./DeviceTree                # Print the ID of each entry
 ```
 
 ### Notes

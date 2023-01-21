@@ -1,4 +1,4 @@
-/* Copyright (c) 2019-2021 Siguza
+/* Copyright (c) 2019-2023 Siguza
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -11,7 +11,8 @@
 #include <fcntl.h>              // open
 #include <stdbool.h>
 #include <stdint.h>
-#include <string.h>             // strcmp, strncmp, strlen
+#include <stdlib.h>             // free
+#include <string.h>             // strcmp, strncmp, strlen, strchr, strrchr, strdup
 #include <unistd.h>             // close
 #include <sys/mman.h>           // mmap, munmap
 #include <sys/stat.h>           // fstat
@@ -123,8 +124,18 @@ static int dt_find_cb(void *a, dt_node_t *node, int depth, const char *key, void
     const char *name = arg->name;
     if(name[0] == '/') // Absolute path
     {
-        // If we ever get here, we traversed back out of an entry that
-        // we matched against, without finding a matching child node.
+        // Don't require "/device-tree" prefix for everything.
+        if(depth == 0)
+        {
+            return 0;
+        }
+        // If we're in the subtree of a node we didn't match against, then ignore everything.
+        if(depth > arg->matchdepth)
+        {
+            return 0;
+        }
+        // If this condition is ever true, then we traversed back out of an entry
+        // that we matched against, without finding a matching child node.
         if(depth < arg->matchdepth)
         {
             return -1;
@@ -137,7 +148,7 @@ static int dt_find_cb(void *a, dt_node_t *node, int depth, const char *key, void
             if(strncmp(name, val, size) == 0 && size + 1 == len && ((const char*)val)[size] == '\0')
             {
                 arg->name = end;
-                ++arg->matchdepth;
+                arg->matchdepth = depth + 1;
             }
             return 0;
         }
@@ -154,7 +165,7 @@ static int dt_find_cb(void *a, dt_node_t *node, int depth, const char *key, void
 
 dt_node_t* dt_find(dt_node_t *node, const char *name)
 {
-    dt_find_cb_t arg = { name, NULL, 0 };
+    dt_find_cb_t arg = { name, NULL, 1 };
     dt_parse(node, 0, NULL, NULL, NULL, &dt_find_cb, &arg);
     return arg.node;
 }
@@ -182,7 +193,7 @@ void* dt_prop(dt_node_t *node, const char *key, size_t *lenp)
 {
     dt_prop_cb_t arg = { key, NULL, 0 };
     dt_parse(node, -1, NULL, NULL, NULL, &dt_prop_cb, &arg);
-    if(arg.val) *lenp = arg.len;
+    if(arg.val && lenp) *lenp = arg.len;
     return arg.val;
 }
 
@@ -364,6 +375,7 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
 int dt(void *mem, size_t size, void *a)
 {
     int retval = -1;
+    char *str = NULL;
 
     REQ(dt_check(mem, size, NULL) == 0);
 
@@ -372,9 +384,12 @@ int dt(void *mem, size_t size, void *a)
     bool recurse = true;
     if(arg->name)
     {
-        if(arg->name[0] == '+')
+        const char *slash = strrchr(arg->name, '/');
+        if(slash && slash[1] == '\0')
         {
-            name = &arg->name[1];
+            str = strndup(arg->name, slash - arg->name);
+            REQ(str);
+            name = str;
         }
         else
         {
@@ -383,12 +398,12 @@ int dt(void *mem, size_t size, void *a)
         }
     }
 
-    // TODO: Multiple nodes with same name
-    dt_node_t *node = name ? dt_find(mem, name) : mem;
+    dt_node_t *node = (name && name[0]) ? dt_find(mem, name) : mem;
     REQ(node);
 
     retval = dt_parse(node, recurse ? 0 : -1, NULL, recurse ? &dt_cbn : NULL, node, &dt_cbp, arg);
 out:;
+    if(str) free(str);
     return retval;
 }
 
@@ -397,8 +412,9 @@ int main(int argc, const char **argv)
     if(argc < 2 || argc > 5)
     {
         ERR("Usage:");
-        ERR("    %s file [[+]name [prop]] [-4|-8]", argv[0]);
-        ERR("    %s file [[+]/path/to/node [prop]] [-4|-8]", argv[0]);
+        ERR("    %s file [''|'/' [prop]] [-4|-8]", argv[0]);
+        ERR("    %s file [name[/] [prop]] [-4|-8]", argv[0]);
+        ERR("    %s file [/path/to/node[/] [prop]] [-4|-8]", argv[0]);
         return -1;
     }
     size_t size = 0;
