@@ -10,6 +10,7 @@
 
 #include <fcntl.h>              // open
 #include <stdbool.h>
+#include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>             // free
 #include <string.h>             // strcmp, strncmp, strlen, strchr, strrchr, strdup
@@ -372,7 +373,7 @@ static int dt_cbp(void *a, dt_node_t *node, int depth, const char *key, void *va
     return retval;
 }
 
-int dt(void *mem, size_t size, void *a)
+static int dt(void *mem, size_t size, void *a)
 {
     int retval = -1;
     char *str = NULL;
