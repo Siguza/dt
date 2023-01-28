@@ -28,7 +28,7 @@ dt ./DeviceTree '/' name            # Print property "name" of all nodes
 ```
 pmgr ./DeviceTree                   # Print MMIO addresses of all devices in the power manager
 pmgr -a ./DeviceTree                # Show stub and group entries
-pmgr -a ./DeviceTree                # Print the ID of each entry
+pmgr -i ./DeviceTree                # Print the ID of each entry
 ```
 
 ### Notes
