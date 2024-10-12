@@ -72,11 +72,11 @@ int dt_check(void *mem, size_t size, size_t *offp)
     return 0;
 }
 
-int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg)
+int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*, int), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg)
 {
     if(cb_node)
     {
-        int r = cb_node(cbn_arg, node);
+        int r = cb_node(cbn_arg, node, depth);
         if(r != 0) return r;
     }
     if(depth >= 0 || cb_prop)
@@ -209,7 +209,7 @@ typedef struct
     size_t size;
 } dt_arg_t;
 
-static int dt_cbn(void *a, dt_node_t *node)
+static int dt_cbn(void *a, dt_node_t *node, int depth)
 {
     if(a != node)
     {

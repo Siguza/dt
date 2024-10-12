@@ -64,7 +64,7 @@ typedef struct
 } dt_prop_t;
 
 int dt_check(void *mem, size_t size, size_t *offp);
-int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg);
+int dt_parse(dt_node_t *node, int depth, size_t *offp, int (*cb_node)(void*, dt_node_t*, int), void *cbn_arg, int (*cb_prop)(void*, dt_node_t*, int, const char*, void*, size_t), void *cbp_arg);
 dt_node_t* dt_find(dt_node_t *node, const char *name);
 void* dt_prop(dt_node_t *node, const char *key, size_t *lenp);
 
